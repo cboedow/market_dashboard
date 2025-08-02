@@ -1,3 +1,4 @@
+git+https://github.com/An0n1mity/RRGPy.git
 streamlit
 yfinance
 pandas
@@ -5,4 +6,3 @@ numpy
 plotly
 pytrends
 scipy
-git+https://github.com/An0n1mity/RRGPy.git
