@@ -1,100 +1,81 @@
+import asyncio
+import importlib.util
 from datetime import datetime
-from typing import List, Optional
-
 import pandas as pd
-import plotly.graph_objects as go
-from openbb_core.app.model.obbject import OBBject
-from openbb_core.app.model.obbject_utils import basemodel_to_df
-from openbb_core.app.provider_interface import ProviderChoices
-from openbb_core.app.utils import get_data
+import streamlit as st
+from openbb_core.app.utils import basemodel_to_df
 
-class RelativeRotationGraph:
-    def __init__(
-        self,
-        symbols: List[str],
-        benchmark: str,
-        study: str = "price",
-        date: Optional[datetime] = None,
-        long_period: int = 252,
-        short_period: int = 21,
-        window: int = 21,
-        trading_periods: int = 252,
-        tail_periods: int = 30,
-        tail_interval: str = "week",
-        provider: str = "yfinance",
-    ):
-        self.symbols = symbols
-        self.benchmark = benchmark
-        self.study = study
-        self.date = date or datetime.today()
-        self.long_period = long_period
-        self.short_period = short_period
-        self.window = window
-        self.trading_periods = trading_periods
-        self.tail_periods = tail_periods
-        self.tail_interval = tail_interval
-        self.provider = provider
+st.set_page_config(layout="wide", page_title="Relative Rotation", initial_sidebar_state="expanded")
 
-        self.rrg: Optional[OBBject] = None
+# === CONFIG ===
+DEFAULT_ETFS = [
+    "SPY", "QQQ", "DIA", "IWM",
+    "XLF", "XLK", "XLE", "XLY", "XLI", "XLP", "XLV", "XLU", "XLB", "XLRE", "XLC"
+]
+TODAY = datetime.today()
 
-    async def fetch(self):
-        self.rrg = await get_data(
-            "economy/rrg",
-            provider=ProviderChoices(self.provider),
-            symbols=self.symbols,
-            benchmark=self.benchmark,
-            study=self.study,
-            date=self.date,
-            long_period=self.long_period,
-            short_period=self.short_period,
-            window=self.window,
-            trading_periods=self.trading_periods,
-            tail_periods=self.tail_periods,
-            tail_interval=self.tail_interval,
-        )
+# === SYMBOLS ===
+symbols = DEFAULT_ETFS
+benchmark = "SPY"
 
-    def show(
-        self,
-        date: Optional[datetime] = None,
-        show_tails: bool = False,
-        tail_periods: int = 30,
-        tail_interval: str = "week",
-        external: bool = True,
-    ):
-        if self.rrg is None:
-            raise ValueError("No RRG data. Call `fetch()` first.")
+# === LOAD MODULE ===
+def import_from_file(module_name, file_path):
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
-        return self.rrg.chart(
-            date=date,
-            show_tails=show_tails,
-            tail_periods=tail_periods,
-            tail_interval=tail_interval,
-            external=external,
-        )
+module = import_from_file("relative_rotation", "relative_rotation.py")
 
-    @property
-    def symbols_data(self):
-        return self.rrg.symbols_data if self.rrg else None
+async def load_rrg():
+    return await module.create(
+        symbols=symbols,
+        benchmark=benchmark,
+        study="price",
+        date=pd.to_datetime(TODAY),
+        long_period=252,
+        short_period=21,
+        window=21,
+        trading_periods=252,
+        tail_periods=30,
+        tail_interval="week",
+        provider="yfinance",
+    )
 
-    @property
-    def benchmark_data(self):
-        return self.rrg.benchmark_data if self.rrg else None
+st.markdown("---")
+st.subheader("📊 Relative Rotation Graph (OpenBB RRG)")
 
-    @property
-    def rs_ratios(self):
-        return self.rrg.rs_ratios if self.rrg else None
+try:
+    rrg_data = asyncio.run(load_rrg())
 
-    @property
-    def rs_momentum(self):
-        return self.rrg.rs_momentum if self.rrg else None
+    fig = rrg_data.show(
+        date=TODAY,
+        show_tails=True,
+        tail_periods=30,
+        tail_interval="week",
+        external=True,
+    )
+    fig.update_layout(height=600, margin=dict(l=0, r=20, b=0, t=50, pad=0))
+    st.plotly_chart(fig, use_container_width=True)
 
-def SPDRS():
-    return [
-        "XLY", "XLP", "XLE", "XLF", "XLV", "XLI", "XLB",
-        "XLRE", "XLK", "XLU", "XLC"
-    ]
+    with st.expander("Study Data Table", expanded=False):
+        symbols_data = (
+            basemodel_to_df(rrg_data.symbols_data).join(
+                basemodel_to_df(rrg_data.benchmark_data)[benchmark]
+            )
+        ).set_index("date")
+        symbols_data.index = pd.to_datetime(symbols_data.index).strftime("%Y-%m-%d")
+        st.dataframe(symbols_data)
 
-def create(**kwargs):
-    graph = RelativeRotationGraph(**kwargs)
-    await graph.fetch()
-    return graph
+    with st.expander("Relative Strength Ratio Table", expanded=False):
+        ratios_data = basemodel_to_df(rrg_data.rs_ratios).set_index("date")
+        ratios_data.index = pd.to_datetime(ratios_data.index).strftime("%Y-%m-%d")
+        st.dataframe(ratios_data)
+
+    with st.expander("Relative Strength Momentum Table", expanded=False):
+        momentum_data = basemodel_to_df(rrg_data.rs_momentum).set_index("date")
+        momentum_data.index = pd.to_datetime(momentum_data.index).strftime("%Y-%m-%d")
+        st.dataframe(momentum_data)
+
+except Exception as e:
+    st.error(f"OpenBB RRG Error: {e}")
