@@ -5,5 +5,3 @@ numpy
 plotly
 pytrends
 scipy
-tkinter
-matplotlib
