@@ -55,16 +55,10 @@ def compute_indicators(symbol):
     df['EMA19'] = df['NetAdv'].ewm(span=19).mean()
     df['EMA39'] = df['NetAdv'].ewm(span=39).mean()
     df['McClellan'] = df['EMA19'] - df['EMA39']
-    df['RSI'] = compute_rsi(df['Close'])
+    
     return df
 
-def compute_rsi(series, period=14):
-    delta = series.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
+
 
 # === LAYOUT ===
 st.title("📊 Modern Market Momentum Dashboard")
@@ -76,17 +70,17 @@ with col1:
     st.metric("Zweig Breadth Thrust", value=f"{latest_zweig:.3f}" if pd.notna(latest_zweig) else "N/A", delta=zweig_signal)
 
 # === CHARTS ===
-st.subheader("📊 McClellan Oscillator + Price + RSI")
+st.subheader("📊 McClellan Oscillator + Price")
 
 row = st.columns(3)
 for i, symbol in enumerate(ALL_SYMBOLS):
     df = compute_indicators(symbol)
     df.dropna(inplace=True)
 
-    fig = make_subplots(rows=3, cols=1, shared_xaxes=True,
-                        row_heights=[0.45, 0.30, 0.25],
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                        row_heights=[0.6, 0.4],
                         vertical_spacing=0.03,
-                        subplot_titles=(f"{symbol} Price", "McClellan Oscillator", "RSI"))
+                        subplot_titles=(f"{symbol} Price", "McClellan Oscillator")))
 
     fig.add_trace(go.Candlestick(x=df.index,
                                  open=df['Open'], high=df['High'],
@@ -96,17 +90,20 @@ for i, symbol in enumerate(ALL_SYMBOLS):
     colors = ['green' if v > 0 else 'red' for v in df['McClellan']]
     fig.add_trace(go.Bar(x=df.index, y=df['McClellan'], marker_color=colors, name="McClellan"), row=2, col=1)
 
-    fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", mode="lines"), row=3, col=1)
-    fig.update_yaxes(range=[0, 100], row=3, col=1)
+    
     fig.update_layout(height=850, width=500, showlegend=False, title=f"{symbol} Technical Stack", xaxis_rangeslider_visible=False, xaxis=dict(tickformat='%b %Y'))
 
     row[i % 3].plotly_chart(fig, use_container_width=True)
 
-# === RRG Chart (Sector Rotation View) ===
+# === RRG Chart (Sector Rotation View) with View Toggle ===
+
 st.markdown("---")
 st.subheader("🔄 Relative Rotation Graph (RRG) — Sector Momentum vs Strength")
 try:
-    sector_data = yf.download(DEFAULT_ETFS, start=(datetime.date.today() - datetime.timedelta(days=60)).isoformat(), end=TODAY)['Close']
+    view_mode = st.radio("Select RRG Timeframe", options=["Daily", "Weekly"], horizontal=True)
+days_back = 60 if view_mode == "Daily" else 280
+interval = '1d' if view_mode == "Daily" else '1wk'
+sector_data = yf.download(DEFAULT_ETFS, start=(datetime.date.today() - datetime.timedelta(days=days_back)).isoformat(), end=TODAY, interval=interval)['Close']
     returns = sector_data.pct_change().dropna()
     benchmark = returns['SPY']
     rel_strength = returns.div(benchmark, axis=0)
@@ -123,6 +120,32 @@ try:
                          title="RRG: Sector Relative Strength vs Momentum")
     rrg_fig.update_traces(textposition='top center')
     st.plotly_chart(rrg_fig, use_container_width=True)
+
+    # === RRG with quadrants and path lines ===
+    st.subheader("🔄 RRG — Quadrants + Trajectories")
+    rrg_traj_fig = go.Figure()
+    for symbol in rrg_df['Symbol']:
+        rs_series = rel_strength[symbol].rolling(window=10).mean().iloc[-10:]
+        mom_series = rs_series.diff().rolling(5).mean().iloc[-10:]
+        phase_color = 'blue' if rs_series.iloc[-1] > 0 and mom_series.iloc[-1] > 0 else \
+                      'green' if rs_series.iloc[-1] < 0 and mom_series.iloc[-1] > 0 else \
+                      'red' if rs_series.iloc[-1] < 0 and mom_series.iloc[-1] < 0 else 'orange'
+        rrg_traj_fig.add_trace(go.Scatter(
+            x=rs_series,
+            y=mom_series,
+            mode='lines+markers',
+            name=symbol,
+            text=[f"{symbol}<br>RS: {rs:.2f}<br>Mom: {mo:.2f}" for rs, mo in zip(rs_series, mom_series)],
+            hoverinfo='text',
+            line=dict(color=phase_color)
+        ))
+
+    # Add quadrant lines
+    rrg_traj_fig.add_shape(type="line", x0=0, x1=0, y0=rrg_df['JDK Momentum'].min(), y1=rrg_df['JDK Momentum'].max(), line=dict(color="gray", dash="dash"))
+    rrg_traj_fig.add_shape(type="line", y0=0, y1=0, x0=rrg_df['JDK RS'].min(), x1=rrg_df['JDK RS'].max(), line=dict(color="gray", dash="dash"))
+
+    rrg_traj_fig.update_layout(title="RRG Flow — Momentum vs Relative Strength (with Quadrants)", xaxis_title="JDK RS", yaxis_title="JDK Momentum")
+    st.plotly_chart(rrg_traj_fig, use_container_width=True)
 except:
     st.warning("Unable to load RRG sector chart.")
 
