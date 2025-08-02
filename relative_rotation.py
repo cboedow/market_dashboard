@@ -13,8 +13,6 @@ DEFAULT_ETFS = [
     "XLF", "XLK", "XLE", "XLY", "XLI", "XLP", "XLV", "XLU", "XLB", "XLRE", "XLC"
 ]
 TODAY = datetime.today()
-
-# === SYMBOLS ===
 symbols = DEFAULT_ETFS
 benchmark = "SPY"
 
@@ -27,8 +25,12 @@ def import_from_file(module_name, file_path):
 
 module = import_from_file("relative_rotation", "relative_rotation.py")
 
-async def load_rrg():
-    return await module.create(
+# === Async Streamlit-safe wrapper ===
+@st.cache_data(show_spinner="Loading RRG data...", ttl=3600)
+def get_rrg_data():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    return loop.run_until_complete(module.create(
         symbols=symbols,
         benchmark=benchmark,
         study="price",
@@ -40,13 +42,13 @@ async def load_rrg():
         tail_periods=30,
         tail_interval="week",
         provider="yfinance",
-    )
+    ))
 
 st.markdown("---")
 st.subheader("📊 Relative Rotation Graph (OpenBB RRG)")
 
 try:
-    rrg_data = asyncio.run(load_rrg())
+    rrg_data = get_rrg_data()
 
     fig = rrg_data.show(
         date=TODAY,
