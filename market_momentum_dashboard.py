@@ -9,8 +9,13 @@ from pytrends.request import TrendReq
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import warnings
 import requests
 from bs4 import BeautifulSoup
+
+# === SUPPRESS FUTURE WARNINGS ===
+warnings.simplefilter(action='ignore', category=FutureWarning)
+pd.set_option('future.no_silent_downcasting', True)
 
 st.set_page_config(layout="wide")
 
@@ -29,14 +34,18 @@ START = (datetime.date.today() - datetime.timedelta(days=180)).isoformat()
 TODAY = datetime.date.today().isoformat()
 
 # === DOWNLOAD DATA ===
-data = yf.download(ALL_SYMBOLS, start=START, end=TODAY, group_by='ticker', auto_adjust=False)
+@st.cache_data(ttl=3600)
+def get_price_data(symbols, start, end):
+    return yf.download(symbols, start=start, end=end, group_by='ticker', auto_adjust=True)
+
+data = get_price_data(ALL_SYMBOLS, START, TODAY)
 
 # === VIX / VIX3M ===
 vix_data = yf.download(['^VIX', '^VIX3M'], start=START, end=TODAY, auto_adjust=True)
 vix_ratio = vix_data['Close']['^VIX'].iloc[-1] / vix_data['Close']['^VIX3M'].iloc[-1]
 
 # === ZWEIG BREADTH THRUST ===
-breadth_data = yf.download("^GSPC", start=START, end=TODAY)
+breadth_data = yf.download("^GSPC", start=START, end=TODAY, auto_adjust=True)
 zweig_signal = "N/A"
 try:
     breadth_data["Advance"] = breadth_data["Close"].pct_change() > 0
@@ -55,10 +64,7 @@ def compute_indicators(symbol):
     df['EMA19'] = df['NetAdv'].ewm(span=19).mean()
     df['EMA39'] = df['NetAdv'].ewm(span=39).mean()
     df['McClellan'] = df['EMA19'] - df['EMA39']
-    
     return df
-
-
 
 # === LAYOUT ===
 st.title("📊 Modern Market Momentum Dashboard")
@@ -90,71 +96,84 @@ for i, symbol in enumerate(ALL_SYMBOLS):
     colors = ['green' if v > 0 else 'red' for v in df['McClellan']]
     fig.add_trace(go.Bar(x=df.index, y=df['McClellan'], marker_color=colors, name="McClellan"), row=2, col=1)
 
-    
-    fig.update_layout(height=850, width=500, showlegend=False, title=f"{symbol} Technical Stack", xaxis_rangeslider_visible=False, xaxis=dict(tickformat='%b %Y'))
+    fig.update_layout(height=850, width=500, showlegend=False,
+                      title=f"{symbol} Technical Stack",
+                      xaxis_rangeslider_visible=False,
+                      xaxis=dict(tickformat='%b %Y'))
 
     row[i % 3].plotly_chart(fig, use_container_width=True)
 
-# === RRG Chart (Sector Rotation View) with View Toggle ===
-
+# === RRG Chart (Sector Rotation View) ===
 st.markdown("---")
 st.subheader("🔄 Relative Rotation Graph (RRG) — Sector Momentum vs Strength")
+
 try:
     view_mode = st.radio("Select RRG Timeframe", options=["Daily", "Weekly"], horizontal=True)
-    days_back = 60 if view_mode == "Daily" else 280
-    interval = '1d' if view_mode == "Daily" else '1wk'
-    sector_data = yf.download(DEFAULT_ETFS, start=(datetime.date.today() - datetime.timedelta(days=days_back)).isoformat(), end=TODAY, interval=interval)['Close']
-    returns = sector_data.pct_change().dropna()
-    benchmark = returns['SPY']
-    rel_strength = returns.div(benchmark, axis=0)
-    jdk_rs = rel_strength.rolling(window=10).mean().iloc[-1]
-    jdk_momentum = rel_strength.rolling(window=10).mean().diff().rolling(5).mean().iloc[-1]
+    with st.spinner(f"Loading {view_mode} RRG data..."):
+        days_back = 60 if view_mode == "Daily" else 280
+        interval = '1d' if view_mode == "Daily" else '1wk'
 
-    rrg_df = pd.DataFrame({
-        'Symbol': jdk_rs.index,
-        'JDK RS': jdk_rs.values,
-        'JDK Momentum': jdk_momentum.values
-    })
+        @st.cache_data(ttl=3600)
+        def get_sector_data(interval, days_back):
+            return yf.download(DEFAULT_ETFS,
+                               start=(datetime.date.today() - datetime.timedelta(days=days_back)).isoformat(),
+                               end=TODAY,
+                               interval=interval,
+                               auto_adjust=True)['Close']
 
-    rrg_fig = px.scatter(rrg_df, x='JDK RS', y='JDK Momentum', text='Symbol', color='Symbol', size_max=60,
-                         title="RRG: Sector Relative Strength vs Momentum")
-    rrg_fig.update_traces(textposition='top center')
-    st.plotly_chart(rrg_fig, use_container_width=True)
+        sector_data = get_sector_data(interval, days_back)
+        returns = sector_data.pct_change().dropna()
+        benchmark = returns['SPY']
+        rel_strength = returns.div(benchmark, axis=0)
+        jdk_rs = rel_strength.rolling(window=10).mean().iloc[-1]
+        jdk_momentum = rel_strength.rolling(window=10).mean().diff().rolling(5).mean().iloc[-1]
 
-    # === RRG with quadrants and path lines ===
-    st.subheader("🔄 RRG — Quadrants + Trajectories")
-    rrg_traj_fig = go.Figure()
-    for symbol in rrg_df['Symbol']:
-        rs_series = rel_strength[symbol].rolling(window=10).mean().iloc[-10:]
-        mom_series = rs_series.diff().rolling(5).mean().iloc[-10:]
-        phase_color = 'blue' if rs_series.iloc[-1] > 0 and mom_series.iloc[-1] > 0 else \
-                      'green' if rs_series.iloc[-1] < 0 and mom_series.iloc[-1] > 0 else \
-                      'red' if rs_series.iloc[-1] < 0 and mom_series.iloc[-1] < 0 else 'orange'
-        rrg_traj_fig.add_trace(go.Scatter(
-            x=rs_series,
-            y=mom_series,
-            mode='lines+markers',
-            name=symbol,
-            text=[f"{symbol}<br>RS: {rs:.2f}<br>Mom: {mo:.2f}" for rs, mo in zip(rs_series, mom_series)],
-            hoverinfo='text',
-            line=dict(color=phase_color)
-        ))
+        rrg_df = pd.DataFrame({
+            'Symbol': jdk_rs.index,
+            'JDK RS': jdk_rs.values,
+            'JDK Momentum': jdk_momentum.values
+        })
 
-    # Add quadrant lines
-    rrg_traj_fig.add_shape(type="line", x0=0, x1=0, y0=rrg_df['JDK Momentum'].min(), y1=rrg_df['JDK Momentum'].max(), line=dict(color="gray", dash="dash"))
-    rrg_traj_fig.add_shape(type="line", y0=0, y1=0, x0=rrg_df['JDK RS'].min(), x1=rrg_df['JDK RS'].max(), line=dict(color="gray", dash="dash"))
+        rrg_fig = px.scatter(rrg_df, x='JDK RS', y='JDK Momentum', text='Symbol', color='Symbol', size_max=60,
+                             title="RRG: Sector Relative Strength vs Momentum")
+        rrg_fig.update_traces(textposition='top center')
+        st.plotly_chart(rrg_fig, use_container_width=True)
 
-    rrg_traj_fig.update_layout(title="RRG Flow — Momentum vs Relative Strength (with Quadrants)", xaxis_title="JDK RS", yaxis_title="JDK Momentum")
-    st.plotly_chart(rrg_traj_fig, use_container_width=True)
+        # === RRG with quadrants and path lines ===
+        st.subheader("🔄 RRG — Quadrants + Trajectories")
+        rrg_traj_fig = go.Figure()
+        for symbol in rrg_df['Symbol']:
+            rs_series = rel_strength[symbol].rolling(window=10).mean().iloc[-10:]
+            mom_series = rs_series.diff().rolling(5).mean().iloc[-10:]
+            phase_color = 'blue' if rs_series.iloc[-1] > 0 and mom_series.iloc[-1] > 0 else \
+                          'green' if rs_series.iloc[-1] < 0 and mom_series.iloc[-1] > 0 else \
+                          'red' if rs_series.iloc[-1] < 0 and mom_series.iloc[-1] < 0 else 'orange'
+            rrg_traj_fig.add_trace(go.Scatter(
+                x=rs_series,
+                y=mom_series,
+                mode='lines+markers',
+                name=symbol,
+                text=[f"{symbol}<br>RS: {rs:.2f}<br>Mom: {mo:.2f}" for rs, mo in zip(rs_series, mom_series)],
+                hoverinfo='text',
+                line=dict(color=phase_color)
+            ))
+
+        rrg_traj_fig.add_shape(type="line", x0=0, x1=0, y0=rrg_df['JDK Momentum'].min(), y1=rrg_df['JDK Momentum'].max(), line=dict(color="gray", dash="dash"))
+        rrg_traj_fig.add_shape(type="line", y0=0, y1=0, x0=rrg_df['JDK RS'].min(), x1=rrg_df['JDK RS'].max(), line=dict(color="gray", dash="dash"))
+
+        rrg_traj_fig.update_layout(title="RRG Flow — Momentum vs Relative Strength (with Quadrants)",
+                                   xaxis_title="JDK RS", yaxis_title="JDK Momentum")
+        st.plotly_chart(rrg_traj_fig, use_container_width=True)
+
 except Exception as e:
-    st.warning("Unable to load RRG sector chart.")
+    st.warning(f"Unable to load RRG sector chart: {e}")
 
 # === GOOGLE TRENDS ===
 st.markdown("---")
 trends = TrendReq(hl='en-US', tz=360)
 keywords = ["how to buy stocks", "stock market crash", "AI stocks", "bitcoin"]
 trends.build_payload(kw_list=keywords, timeframe='now 7-d')
-trend_data = trends.interest_over_time()
+trend_data = trends.interest_over_time().infer_objects(copy=False)
 
 st.subheader("📈 Google Trends Sentiment Tracker")
 if not trend_data.empty:
@@ -162,4 +181,4 @@ if not trend_data.empty:
 else:
     st.warning("Google Trends data could not be loaded. Try again later.")
 
-st.caption("Dashboard prototype v1.8 — Cleaned metrics")
+st.caption("Dashboard prototype v1.9 — Optimized RRG and McClellan Stack")
