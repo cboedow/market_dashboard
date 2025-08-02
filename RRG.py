@@ -20,15 +20,23 @@ class RRG:
         self.dataframe = None
 
     def fetch_data(self):
-        raw = yf.download(self.tickers, period=self.period, interval=self.interval, auto_adjust=True, group_by='ticker')
-        if isinstance(raw.columns, pd.MultiIndex):
-            self.tickers_data = raw['Close']
-        else:
-            self.tickers_data = raw[['Close']].copy()
-        benchmark_raw = yf.download(self.benchmark, period=self.period, interval=self.interval, auto_adjust=True)
-        self.benchmark_data = benchmark_raw['Close']
+    raw = yf.download(self.tickers, period=self.period, interval=self.interval, auto_adjust=True, group_by='ticker')
+    
+    if isinstance(raw.columns, pd.MultiIndex):
+        # For multiple tickers: extract each 'Close' series into a unified DataFrame
+        self.tickers_data = pd.concat({ticker: raw[ticker]['Close'] for ticker in self.tickers}, axis=1)
+    else:
+        # For single ticker: just get the Close column directly
+        self.tickers_data = raw[['Close']].rename(columns={'Close': self.tickers[0]})
 
-    def calculate_indicators(self):
+    # Fetch benchmark
+    benchmark_raw = yf.download(self.benchmark, period=self.period, interval=self.interval, auto_adjust=True)
+    if 'Close' in benchmark_raw.columns:
+        self.benchmark_data = benchmark_raw['Close']
+    else:
+        raise ValueError("Benchmark data has no 'Close' column.")
+
+     def calculate_indicators(self):
         for ticker in self.tickers:
             rs = 100 * (self.tickers_data[ticker] / self.benchmark_data)
             rsr = (100 + (rs - rs.rolling(window=self.window).mean()) / rs.rolling(window=self.window).std(ddof=0)).dropna()
