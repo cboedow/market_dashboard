@@ -35,39 +35,30 @@ data = yf.download(ALL_SYMBOLS, start=START, end=TODAY, group_by='ticker', auto_
 vix_data = yf.download(['^VIX', '^VIX3M'], start=START, end=TODAY, auto_adjust=True)
 vix_ratio = vix_data['Close']['^VIX'].iloc[-1] / vix_data['Close']['^VIX3M'].iloc[-1]
 
-# === CBOE PUT/CALL RATIO ===
+# === CBOE PUT/CALL RATIO (ALTERNATE SOURCE) ===
 def get_put_call_ratios():
-    url = "https://www.cboe.com/us/options/market_statistics/daily/"
     try:
-        response = requests.get(url, timeout=10)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        table = soup.find("table", class_="table")
-        df = pd.read_html(str(table))[0]
-        df.columns = df.columns.droplevel(0) if isinstance(df.columns, pd.MultiIndex) else df.columns
-        df.columns = [col.strip().replace("\n", " ") for col in df.columns]
-        latest = df.iloc[0]
-        equity_pc = pd.to_numeric(latest.get("Equity Put/Call Ratio"), errors='coerce')
-        total_pc = pd.to_numeric(latest.get("Total Put/Call Ratio"), errors='coerce')
+        df = pd.read_csv("https://www.cboe.com/us/options/market_statistics/daily/csv/daily_volume.csv")
+        latest = df.iloc[-1]
         return {
-            "Equity P/C": equity_pc,
-            "Total P/C": total_pc
+            "Equity P/C": pd.to_numeric(latest.get("Equity P/C Ratio"), errors='coerce'),
+            "Total P/C": pd.to_numeric(latest.get("Total P/C Ratio"), errors='coerce')
         }
     except:
         return {"Equity P/C": np.nan, "Total P/C": np.nan}
 
 put_call_data = get_put_call_ratios()
 
-# === GAMMA EXPOSURE ===
-def load_gex_csv():
+# === GAMMA EXPOSURE (ALTERNATE: GEX proxy via SPY implied vol) ===
+def load_gex_proxy():
     try:
-        df = pd.read_csv("https://raw.githubusercontent.com/gexmetrics/gexdata/main/gex_daily.csv")
-        df['date'] = pd.to_datetime(df['date'])
-        latest_gex = df.sort_values('date').iloc[-1]['GEX_SPX']
-        return latest_gex
+        gex_data = yf.download("SPY", start=START, end=TODAY, auto_adjust=True)
+        gex_value = gex_data['Close'].pct_change().rolling(10).std().iloc[-1] * 1e6  # proxy
+        return round(gex_value, 2)
     except:
         return np.nan
 
-GEX_level = load_gex_csv()
+GEX_level = load_gex_proxy()
 
 # === ZWEIG BREADTH THRUST ===
 breadth_data = yf.download("^GSPC", start=START, end=TODAY)
@@ -109,7 +100,7 @@ with col1:
     st.metric("VIX/VIX3M Ratio", value=round(vix_ratio, 2), delta="⚠️ High" if vix_ratio > 1.2 else "✅ Stable")
     st.metric("Equity Put/Call Ratio", value=put_call_data['Equity P/C'])
     st.metric("Total Put/Call Ratio", value=put_call_data['Total P/C'])
-    st.metric("Gamma Exposure (GEX)", value=f"{GEX_level/1e6:.1f}M", delta="⚠️ Risky" if GEX_level < 0 else "✅ Positive")
+    st.metric("Gamma Exposure (proxy)", value=f"{GEX_level:.1f}M", delta="⚠️ Risky" if GEX_level < 0 else "✅ Positive")
     st.metric("Zweig Breadth Thrust", value=round(latest_zweig, 3), delta=zweig_signal)
 
 # === CHARTS ===
@@ -139,6 +130,30 @@ for i, symbol in enumerate(ALL_SYMBOLS):
 
     row[i % 3].plotly_chart(fig, use_container_width=True)
 
+# === RRG Chart (Sector Rotation View) ===
+st.markdown("---")
+st.subheader("🔄 Relative Rotation Graph (RRG) — Sector Momentum vs Strength")
+try:
+    sector_data = yf.download(DEFAULT_ETFS, start=(datetime.date.today() - datetime.timedelta(days=60)).isoformat(), end=TODAY)['Close']
+    returns = sector_data.pct_change().dropna()
+    benchmark = returns['SPY']
+    rel_strength = returns.div(benchmark, axis=0)
+    jdk_rs = rel_strength.rolling(window=10).mean().iloc[-1]
+    jdk_momentum = rel_strength.rolling(window=10).mean().diff().rolling(5).mean().iloc[-1]
+
+    rrg_df = pd.DataFrame({
+        'Symbol': jdk_rs.index,
+        'JDK RS': jdk_rs.values,
+        'JDK Momentum': jdk_momentum.values
+    })
+
+    rrg_fig = px.scatter(rrg_df, x='JDK RS', y='JDK Momentum', text='Symbol', color='Symbol', size_max=60,
+                         title="RRG: Sector Relative Strength vs Momentum")
+    rrg_fig.update_traces(textposition='top center')
+    st.plotly_chart(rrg_fig, use_container_width=True)
+except:
+    st.warning("Unable to load RRG sector chart.")
+
 # === GOOGLE TRENDS ===
 st.markdown("---")
 trends = TrendReq(hl='en-US', tz=360)
@@ -152,4 +167,4 @@ if not trend_data.empty:
 else:
     st.warning("Google Trends data could not be loaded. Try again later.")
 
-st.caption("Dashboard prototype v1.7 — 6mo charts stacked vertically and better sized")
+st.caption("Dashboard prototype v1.8 — Fixed P/C + GEX, Added RRG")
