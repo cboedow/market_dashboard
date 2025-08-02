@@ -21,7 +21,7 @@ DEFAULT_ETFS = [
 ]
 
 # === USER STOCK INPUT ===
-user_input = st.sidebar.text_area("📥 Add Custom Tickers (comma-separated)", value="TSLA, AAPL")
+user_input = st.text_input("📥 Add Custom Tickers (comma-separated)", value="TSLA, AAPL", help="Type tickers separated by commas (e.g., TSLA, AAPL)")
 custom_tickers = [s.strip().upper() for s in user_input.split(",") if s.strip()]
 ALL_SYMBOLS = list(set(DEFAULT_ETFS + custom_tickers))
 
@@ -98,7 +98,7 @@ for i, symbol in enumerate(ALL_SYMBOLS):
 
     fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", mode="lines"), row=3, col=1)
     fig.update_yaxes(range=[0, 100], row=3, col=1)
-    fig.update_layout(height=800, width=500, showlegend=False, title=f"{symbol} Technical Stack")
+    fig.update_layout(height=850, width=500, showlegend=False, title=f"{symbol} Technical Stack", xaxis_rangeslider_visible=False, xaxis=dict(tickformat='%b %Y'))
 
     row[i % 3].plotly_chart(fig, use_container_width=True)
 
