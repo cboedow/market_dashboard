@@ -101,6 +101,7 @@ for i, symbol in enumerate(ALL_SYMBOLS):
     )
 
     row[i % 3].plotly_chart(fig, use_container_width=True)
+
 # === RRG Section ===
 st.markdown("---")
 st.subheader("🔄 RRG — Sector Rotation (JDK RS + Momentum)")
@@ -123,48 +124,75 @@ try:
         log_returns = np.log(price_df / price_df.shift(1)).dropna()
         rel_strength = log_returns.subtract(log_returns['SPY'], axis=0)
 
-        # Smooth JDK RS and Momentum
-        jdk_rs = rel_strength.rolling(10).mean()
-        jdk_mom = jdk_rs.diff().rolling(5).mean()
+        # Smooth and normalize
+        jdk_rs = rel_strength.rolling(window=10).mean()
+        jdk_mom = jdk_rs.diff().rolling(window=5).mean()
 
-        # Plot last 10 periods of each ETF
+        jdk_rs_scaled = jdk_rs / jdk_rs.std()
+        jdk_mom_scaled = jdk_mom / jdk_mom.std()
+
         fig = go.Figure()
 
-        # Add shaded quadrants
-        fig.add_shape(type="rect", x0=0, x1=1, y0=0, y1=1, fillcolor="blue", opacity=0.1, line_width=0)
-        fig.add_shape(type="rect", x0=0, x1=1, y0=-1, y1=0, fillcolor="yellow", opacity=0.1, line_width=0)
-        fig.add_shape(type="rect", x0=-1, x1=0, y0=-1, y1=0, fillcolor="red", opacity=0.1, line_width=0)
-        fig.add_shape(type="rect", x0=-1, x1=0, y0=0, y1=1, fillcolor="green", opacity=0.1, line_width=0)
+        # === Quadrant backgrounds ===
+        quadrant_colors = {
+            "Leading":    {"x0": 0,  "x1": 1,  "y0": 0,  "y1": 1,  "color": "rgba(173,216,230,0.2)"},  # Light Blue
+            "Weakening":  {"x0": 0,  "x1": 1,  "y0": -1, "y1": 0,  "color": "rgba(255,255,153,0.2)"},  # Light Yellow
+            "Lagging":    {"x0": -1, "x1": 0,  "y0": -1, "y1": 0,  "color": "rgba(255,160,122,0.2)"},  # Light Salmon
+            "Improving":  {"x0": -1, "x1": 0,  "y0": 0,  "y1": 1,  "color": "rgba(144,238,144,0.2)"}   # Light Green
+        }
 
-        # Axis lines
-        fig.add_shape(type="line", x0=-1, x1=1, y0=0, y1=0, line=dict(color="gray", dash="dash"))
-        fig.add_shape(type="line", x0=0, x1=0, y0=-1, y1=1, line=dict(color="gray", dash="dash"))
+        for quadrant in quadrant_colors.values():
+            fig.add_shape(type="rect", xref="x", yref="y",
+                          x0=quadrant["x0"], x1=quadrant["x1"],
+                          y0=quadrant["y0"], y1=quadrant["y1"],
+                          fillcolor=quadrant["color"], line_width=0)
 
+        # === Axes ===
+        fig.add_shape(type="line", x0=-1.5, x1=1.5, y0=0, y1=0,
+                      line=dict(color="gray", dash="dash"))
+        fig.add_shape(type="line", x0=0, x1=0, y0=-1.5, y1=1.5,
+                      line=dict(color="gray", dash="dash"))
+
+        # === ETF Arrows + Markers ===
         for symbol in DEFAULT_ETFS:
-            rs = jdk_rs[symbol].iloc[-10:]
-            mom = jdk_mom[symbol].iloc[-10:]
-            if rs.isnull().any() or mom.isnull().any():
+            rs_series = jdk_rs_scaled[symbol].iloc[-10:]
+            mom_series = jdk_mom_scaled[symbol].iloc[-10:]
+
+            if rs_series.isnull().any() or mom_series.isnull().any():
                 continue
 
+            # Line path (arrow body)
             fig.add_trace(go.Scatter(
-                x=rs,
-                y=mom,
-                mode="lines+markers+text",
-                name=symbol,
-                text=[symbol]*len(rs),
-                textposition="top center",
-                hoverinfo="text",
-                marker=dict(size=6),
+                x=rs_series,
+                y=mom_series,
+                mode="lines",
                 line=dict(width=2),
+                name=symbol,
+                showlegend=False
             ))
 
+            # Arrow head (using final two points to draw arrow)
+            fig.add_trace(go.Scatter(
+                x=rs_series.iloc[-2:],
+                y=mom_series.iloc[-2:],
+                mode="lines+markers+text",
+                line=dict(width=0.5, color='black', dash='dot'),
+                marker=dict(size=[6, 12], color='black'),
+                text=[None, symbol],
+                textposition="top center",
+                showlegend=False
+            ))
+
+        # === Final Layout ===
         fig.update_layout(
             title="RRG: Sector Rotation via JDK RS & Momentum",
-            xaxis_title="JDK RS (Relative Strength vs SPY)",
-            yaxis_title="JDK Momentum",
-            xaxis=dict(range=[-1, 1]),
-            yaxis=dict(range=[-1, 1]),
-            height=700
+            xaxis_title="JDK RS (Relative Strength vs SPY) - Scaled",
+            yaxis_title="JDK Momentum - Scaled",
+            xaxis=dict(range=[-1.5, 1.5], zeroline=False),
+            yaxis=dict(range=[-1.5, 1.5], zeroline=False),
+            height=750,
+            legend_title="ETF",
+            legend=dict(orientation="v", yanchor="top", y=0.98, xanchor="left", x=1.02)
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -175,7 +203,7 @@ except Exception as e:
 st.markdown("---")
 st.subheader("📈 Google Trends Sentiment Tracker")
 trends = TrendReq(hl='en-US', tz=360)
-keywords = ["how to buy stocks", "stock market crash", "AI stocks", "bitcoin"]
+keywords = ["$GEV", "stocks", "$TSLA", "$NVDA", "AI stocks", "bitcoin"]
 trends.build_payload(kw_list=keywords, timeframe='now 7-d')
 trend_data = trends.interest_over_time().infer_objects(copy=False)
 if not trend_data.empty:
