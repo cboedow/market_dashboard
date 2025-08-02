@@ -158,7 +158,7 @@ try:
         fig.add_shape(type="line", x0=0, x1=0, y0=-1.5, y1=1.5,
                       line=dict(color="gray", dash="dash"))
 
-        trail_length = 7
+        trail_length = 3
 
         for symbol in DEFAULT_ETFS:
             rs_series = jdk_rs_scaled[symbol].dropna().iloc[-trail_length:]
