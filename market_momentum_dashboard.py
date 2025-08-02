@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import datetime
 import streamlit as st
+from plotly.subplots import make_subplots
 from pytrends.request import TrendReq
 import plotly.express as px
 import plotly.graph_objects as go
