@@ -1,4 +1,4 @@
-https://github.com/cboedow/RRGPy
+git+https://github.com/cboedow/RRGPy
 streamlit
 yfinance
 pandas
