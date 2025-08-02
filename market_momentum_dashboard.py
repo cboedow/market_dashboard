@@ -101,9 +101,9 @@ st.markdown("---")
 st.subheader("🔄 Relative Rotation Graph (RRG) — Sector Momentum vs Strength")
 try:
     view_mode = st.radio("Select RRG Timeframe", options=["Daily", "Weekly"], horizontal=True)
-days_back = 60 if view_mode == "Daily" else 280
-interval = '1d' if view_mode == "Daily" else '1wk'
-sector_data = yf.download(DEFAULT_ETFS, start=(datetime.date.today() - datetime.timedelta(days=days_back)).isoformat(), end=TODAY, interval=interval)['Close']
+    days_back = 60 if view_mode == "Daily" else 280
+    interval = '1d' if view_mode == "Daily" else '1wk'
+    sector_data = yf.download(DEFAULT_ETFS, start=(datetime.date.today() - datetime.timedelta(days=days_back)).isoformat(), end=TODAY, interval=interval)['Close']
     returns = sector_data.pct_change().dropna()
     benchmark = returns['SPY']
     rel_strength = returns.div(benchmark, axis=0)
