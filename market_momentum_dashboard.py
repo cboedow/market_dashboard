@@ -80,7 +80,7 @@ for i, symbol in enumerate(ALL_SYMBOLS):
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                         row_heights=[0.6, 0.4],
                         vertical_spacing=0.03,
-                        subplot_titles=(f"{symbol} Price", "McClellan Oscillator")))
+                        subplot_titles=(f"{symbol} Price", "McClellan Oscillator"))
 
     fig.add_trace(go.Candlestick(x=df.index,
                                  open=df['Open'], high=df['High'],
