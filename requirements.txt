@@ -5,3 +5,4 @@ numpy
 plotly
 pytrends
 scipy
+git+https://github.com/An0n1mity/RRGPy.git
