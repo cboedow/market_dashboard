@@ -35,31 +35,6 @@ data = yf.download(ALL_SYMBOLS, start=START, end=TODAY, group_by='ticker', auto_
 vix_data = yf.download(['^VIX', '^VIX3M'], start=START, end=TODAY, auto_adjust=True)
 vix_ratio = vix_data['Close']['^VIX'].iloc[-1] / vix_data['Close']['^VIX3M'].iloc[-1]
 
-# === CBOE PUT/CALL RATIO (ALTERNATE SOURCE) ===
-def get_put_call_ratios():
-    try:
-        df = pd.read_csv("https://www.cboe.com/us/options/market_statistics/daily/csv/daily_volume.csv")
-        latest = df.iloc[-1]
-        return {
-            "Equity P/C": pd.to_numeric(latest.get("Equity P/C Ratio"), errors='coerce'),
-            "Total P/C": pd.to_numeric(latest.get("Total P/C Ratio"), errors='coerce')
-        }
-    except:
-        return {"Equity P/C": np.nan, "Total P/C": np.nan}
-
-put_call_data = get_put_call_ratios()
-
-# === GAMMA EXPOSURE (ALTERNATE: GEX proxy via SPY implied vol) ===
-def load_gex_proxy():
-    try:
-        gex_data = yf.download("SPY", start=START, end=TODAY, auto_adjust=True)
-        gex_value = gex_data['Close'].pct_change().rolling(10).std().iloc[-1] * 1e6  # proxy
-        return round(gex_value, 2)
-    except:
-        return np.nan
-
-GEX_level = load_gex_proxy()
-
 # === ZWEIG BREADTH THRUST ===
 breadth_data = yf.download("^GSPC", start=START, end=TODAY)
 zweig_signal = "N/A"
@@ -98,9 +73,6 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.metric("VIX/VIX3M Ratio", value=round(vix_ratio, 2), delta="⚠️ High" if vix_ratio > 1.2 else "✅ Stable")
-    st.metric("Equity Put/Call Ratio", value=f"{put_call_data['Equity P/C']:.2f}" if pd.notna(put_call_data['Equity P/C']) else "N/A")
-    st.metric("Total Put/Call Ratio", value=f"{put_call_data['Total P/C']:.2f}" if pd.notna(put_call_data['Total P/C']) else "N/A")
-    st.metric("Gamma Exposure (proxy)", value=f"{float(GEX_level):.1f}M" if pd.notna(GEX_level) else "N/A", delta="⚠️ Risky" if pd.notna(GEX_level) and float(GEX_level) < 0 else "✅ Positive")
     st.metric("Zweig Breadth Thrust", value=f"{latest_zweig:.3f}" if pd.notna(latest_zweig) else "N/A", delta=zweig_signal)
 
 # === CHARTS ===
@@ -167,4 +139,4 @@ if not trend_data.empty:
 else:
     st.warning("Google Trends data could not be loaded. Try again later.")
 
-st.caption("Dashboard prototype v1.8 — Fixed P/C + GEX, Added RRG")
+st.caption("Dashboard prototype v1.8 — Cleaned metrics")
