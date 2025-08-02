@@ -1,4 +1,4 @@
-# market_momentum_dashboard.py — Streamlit v2.0
+# market_momentum_dashboard.py — Clean, Stable RRG v2.0
 
 import yfinance as yf
 import pandas as pd
@@ -9,11 +9,8 @@ from pytrends.request import TrendReq
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import scipy.interpolate as si
 import warnings
-from relative_rotation import create, SPDRS
-import asyncio
-from openbb_core.app.utils import basemodel_to_df
+from relative_rotation import RRGData
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 pd.set_option('future.no_silent_downcasting', True)
@@ -28,27 +25,27 @@ DEFAULT_ETFS = [
 TODAY = datetime.date.today()
 START = TODAY - datetime.timedelta(days=180)
 
-# === USER INPUT INLINE ===
+# === USER INPUT ===
 with st.container():
     cols = st.columns([6, 1])
     with cols[0]:
         user_input = st.text_input("Add Custom Tickers", value="TSLA, AAPL", label_visibility="collapsed")
     with cols[1]:
-        st.markdown("&nbsp;")  # space filler
+        st.markdown("&nbsp;")
 ALL_SYMBOLS = list(set(DEFAULT_ETFS + [x.strip().upper() for x in user_input.split(",") if x.strip()]))
 
-# === DATA ===
+# === DATA LOADING ===
 @st.cache_data(ttl=3600)
 def get_price_data(symbols, start, end):
     return yf.download(symbols, start=start, end=end, group_by='ticker', auto_adjust=True)
 
 data = get_price_data(ALL_SYMBOLS, START.isoformat(), TODAY.isoformat())
 
-# === VIX / VIX3M ===
+# === VIX METRIC ===
 vix_data = yf.download(['^VIX', '^VIX3M'], start=START, end=TODAY)
 vix_ratio = vix_data['Close']['^VIX'].iloc[-1] / vix_data['Close']['^VIX3M'].iloc[-1]
 
-# === ZWEIG BREADTH THRUST ===
+# === BREADTH ===
 breadth_data = yf.download("^GSPC", start=START, end=TODAY)
 zweig_signal = "N/A"
 try:
@@ -58,17 +55,6 @@ try:
     zweig_signal = "✅ Breadth Thrust" if latest_zweig > 0.615 else "⚠️ Normal"
 except:
     latest_zweig = np.nan
-
-# === INDICATORS ===
-def compute_indicators(symbol):
-    df = data[symbol].copy()
-    df['Advance'] = df['Close'].pct_change() > 0
-    df['Decline'] = df['Close'].pct_change() < 0
-    df['NetAdv'] = df['Advance'].astype(int) - df['Decline'].astype(int)
-    df['EMA19'] = df['NetAdv'].ewm(span=19).mean()
-    df['EMA39'] = df['NetAdv'].ewm(span=39).mean()
-    df['McClellan'] = df['EMA19'] - df['EMA39']
-    return df
 
 # === METRICS ===
 st.title("📊 Modern Market Momentum Dashboard")
@@ -81,7 +67,13 @@ with col1:
 st.subheader("📈 McClellan Oscillator + Price")
 row = st.columns(3)
 for i, symbol in enumerate(ALL_SYMBOLS):
-    df = compute_indicators(symbol)
+    df = data[symbol].copy()
+    df['Advance'] = df['Close'].pct_change() > 0
+    df['Decline'] = df['Close'].pct_change() < 0
+    df['NetAdv'] = df['Advance'].astype(int) - df['Decline'].astype(int)
+    df['EMA19'] = df['NetAdv'].ewm(span=19).mean()
+    df['EMA39'] = df['NetAdv'].ewm(span=39).mean()
+    df['McClellan'] = df['EMA19'] - df['EMA39']
     df.dropna(inplace=True)
 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
@@ -106,62 +98,20 @@ for i, symbol in enumerate(ALL_SYMBOLS):
 
     row[i % 3].plotly_chart(fig, use_container_width=True)
 
-# === RRG Section ===
+# === RRG FINAL ===
+st.subheader("📊 Relative Rotation Graph")
 
-st.markdown("---")
-st.subheader("📊 Relative Rotation Graph (OpenBB RRG)")
-
-symbols = SPDRS()
+symbols = ["SPY", "QQQ", "XLF", "XLK", "XLE", "XLI"]
 benchmark = "SPY"
 
 try:
-    rrg_data = asyncio.run(
-        create(
-            symbols=symbols,
-            benchmark=benchmark,
-            study="price",
-            date=pd.to_datetime(TODAY),
-            long_period=252,
-            short_period=21,
-            window=21,
-            trading_periods=252,
-            tail_periods=30,
-            tail_interval="week",
-            provider="yfinance",
-        )
-    )
-
-    fig = rrg_data.show(
-        date=TODAY,
-        show_tails=True,
-        tail_periods=30,
-        tail_interval="week",
-        external=True,
-    )
-    fig.update_layout(height=600, margin=dict(l=0, r=20, b=0, t=50, pad=0))
+    rrg = RRGData(symbols, benchmark)
+    rrg.fetch_data()
+    rrg.calculate_indicators()
+    fig = rrg.show()
     st.plotly_chart(fig, use_container_width=True)
-
-    with st.expander("Study Data Table", expanded=False):
-        symbols_data = (
-            basemodel_to_df(rrg_data.symbols_data).join(
-                basemodel_to_df(rrg_data.benchmark_data)[benchmark]
-            )
-        ).set_index("date")
-        symbols_data.index = pd.to_datetime(symbols_data.index).strftime("%Y-%m-%d")
-        st.dataframe(symbols_data)
-
-    with st.expander("Relative Strength Ratio Table", expanded=False):
-        ratios_data = basemodel_to_df(rrg_data.rs_ratios).set_index("date")
-        ratios_data.index = pd.to_datetime(ratios_data.index).strftime("%Y-%m-%d")
-        st.dataframe(ratios_data)
-
-    with st.expander("Relative Strength Momentum Table", expanded=False):
-        momentum_data = basemodel_to_df(rrg_data.rs_momentum).set_index("date")
-        momentum_data.index = pd.to_datetime(momentum_data.index).strftime("%Y-%m-%d")
-        st.dataframe(momentum_data)
-
 except Exception as e:
-    st.error(f"OpenBB RRG Error: {e}")
+    st.error(f"RRG Error: {e}")
 
 # === GOOGLE TRENDS ===
 st.markdown("---")
