@@ -110,11 +110,15 @@ st.subheader("🔄 RRG — Sector Rotation (JDK RS + Momentum)")
 st.subheader("📊 Relative Rotation Graph")
 
 tickers = ['SPY', 'QQQ', 'XLF', 'XLK', 'XLU', 'XLE']
-rrg = RRG(tickers=tickers, benchmark='SPY', period='6mo', interval='1wk')
-rrg.fetch_data()
-rrg.calculate_indicators()
-df = rrg.prepare_dataframe()
-fig = rrg.plot_plotly()
+try:
+    rrg = RRG(tickers=tickers, benchmark='SPY', period='6mo', interval='1wk')
+    rrg.fetch_data()
+    rrg.calculate_indicators()
+    fig = rrg.plot_plotly()
+    st.plotly_chart(fig, use_container_width=True)
+except Exception as e:
+    st.error(f"RRG Error: {e}")
+
 
 st.plotly_chart(fig, use_container_width=True)
 
