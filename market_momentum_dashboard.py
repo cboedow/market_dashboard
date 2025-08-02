@@ -101,53 +101,75 @@ for i, symbol in enumerate(ALL_SYMBOLS):
     )
 
     row[i % 3].plotly_chart(fig, use_container_width=True)
-
-# === RRG CHART ===
+# === RRG Section ===
 st.markdown("---")
-st.subheader("🔄 Relative Rotation Graph (RRG) — Sector Momentum vs Strength")
-view_mode = st.radio("Select Timeframe", ["Daily", "Weekly"], horizontal=True)
+st.subheader("🔄 RRG — Sector Rotation (JDK RS + Momentum)")
 
-@st.cache_data(ttl=3600)
-def get_rrg_data(interval, days_back):
-    prices = yf.download(DEFAULT_ETFS, start=(TODAY - datetime.timedelta(days=days_back)).isoformat(), end=TODAY.isoformat(), interval=interval)['Close']
-    returns = prices.pct_change().dropna()
-    benchmark = returns['SPY']
-    rel_strength = returns.div(benchmark, axis=0)
-    rs = rel_strength.rolling(10).mean()
-    mom = rs.diff()
-    rs_norm = 100 + (rs - rs.mean())
-    mom_norm = 100 + (mom - mom.mean())
-    return rs_norm, mom_norm
+try:
+    view_mode = st.radio("View", ["Daily", "Weekly"], horizontal=True)
+    with st.spinner(f"Loading {view_mode} RRG..."):
+        days_back = 60 if view_mode == "Daily" else 280
+        interval = '1d' if view_mode == "Daily" else '1wk'
 
-interval = '1d' if view_mode == "Daily" else '1wk'
-days_back = 60 if view_mode == "Daily" else 280
-rs_norm, mom_norm = get_rrg_data(interval, days_back)
+        @st.cache_data(ttl=3600)
+        def fetch_sector_data(interval, days_back):
+            return yf.download(DEFAULT_ETFS,
+                               start=(datetime.date.today() - datetime.timedelta(days=days_back)).isoformat(),
+                               end=TODAY,
+                               interval=interval,
+                               auto_adjust=True)['Close']
 
-fig = go.Figure()
-for symbol in DEFAULT_ETFS:
-    x = rs_norm[symbol].iloc[-10:]
-    y = mom_norm[symbol].iloc[-10:]
-    fig.add_trace(go.Scatter(
-        x=x, y=y, mode="lines+markers+text", name=symbol,
-        text=[symbol]*len(x),
-        textposition="top center",
-        line=dict(width=2),
-        marker=dict(size=8)
-    ))
+        price_df = fetch_sector_data(interval, days_back)
+        log_returns = np.log(price_df / price_df.shift(1)).dropna()
+        rel_strength = log_returns.subtract(log_returns['SPY'], axis=0)
 
-# === QUADRANTS ===
-fig.add_shape(type="line", x0=100, x1=100, y0=90, y1=110, line=dict(color="gray", dash="dot"))
-fig.add_shape(type="line", y0=100, y1=100, x0=90, x1=110, line=dict(color="gray", dash="dot"))
-for x0, y0, x1, y1, color in [(100,100,110,110,"lightgreen"), (90,100,100,110,"lightblue"),
-                              (90,90,100,100,"lightcoral"), (100,90,110,100,"khaki")]:
-    fig.add_shape(type="rect", x0=x0, y0=y0, x1=x1, y1=y1, fillcolor=color, opacity=0.2, line_width=0)
+        # Smooth JDK RS and Momentum
+        jdk_rs = rel_strength.rolling(10).mean()
+        jdk_mom = jdk_rs.diff().rolling(5).mean()
 
-fig.update_layout(
-    title=f"📊 RRG Flow ({view_mode}) — JDK RS vs Momentum",
-    xaxis_title="JDK RS-Ratio (Normalized)", yaxis_title="JDK Momentum (Normalized)",
-    xaxis_range=[90,110], yaxis_range=[90,110], height=600
-)
-st.plotly_chart(fig, use_container_width=True)
+        # Plot last 10 periods of each ETF
+        fig = go.Figure()
+
+        # Add shaded quadrants
+        fig.add_shape(type="rect", x0=0, x1=1, y0=0, y1=1, fillcolor="blue", opacity=0.1, line_width=0)
+        fig.add_shape(type="rect", x0=0, x1=1, y0=-1, y1=0, fillcolor="yellow", opacity=0.1, line_width=0)
+        fig.add_shape(type="rect", x0=-1, x1=0, y0=-1, y1=0, fillcolor="red", opacity=0.1, line_width=0)
+        fig.add_shape(type="rect", x0=-1, x1=0, y0=0, y1=1, fillcolor="green", opacity=0.1, line_width=0)
+
+        # Axis lines
+        fig.add_shape(type="line", x0=-1, x1=1, y0=0, y1=0, line=dict(color="gray", dash="dash"))
+        fig.add_shape(type="line", x0=0, x1=0, y0=-1, y1=1, line=dict(color="gray", dash="dash"))
+
+        for symbol in DEFAULT_ETFS:
+            rs = jdk_rs[symbol].iloc[-10:]
+            mom = jdk_mom[symbol].iloc[-10:]
+            if rs.isnull().any() or mom.isnull().any():
+                continue
+
+            fig.add_trace(go.Scatter(
+                x=rs,
+                y=mom,
+                mode="lines+markers+text",
+                name=symbol,
+                text=[symbol]*len(rs),
+                textposition="top center",
+                hoverinfo="text",
+                marker=dict(size=6),
+                line=dict(width=2),
+            ))
+
+        fig.update_layout(
+            title="RRG: Sector Rotation via JDK RS & Momentum",
+            xaxis_title="JDK RS (Relative Strength vs SPY)",
+            yaxis_title="JDK Momentum",
+            xaxis=dict(range=[-1, 1]),
+            yaxis=dict(range=[-1, 1]),
+            height=700
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+except Exception as e:
+    st.error(f"RRG chart error: {e}")
 
 # === GOOGLE TRENDS ===
 st.markdown("---")
