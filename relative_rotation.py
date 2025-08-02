@@ -1,83 +1,47 @@
-import asyncio
-import importlib.util
-from datetime import datetime
 import pandas as pd
-import streamlit as st
-from openbb_core.app.utils import basemodel_to_df
+import yfinance as yf
+from datetime import datetime, timedelta
 
-st.set_page_config(layout="wide", page_title="Relative Rotation", initial_sidebar_state="expanded")
 
-# === CONFIG ===
-DEFAULT_ETFS = [
-    "SPY", "QQQ", "DIA", "IWM",
-    "XLF", "XLK", "XLE", "XLY", "XLI", "XLP", "XLV", "XLU", "XLB", "XLRE", "XLC"
-]
-TODAY = datetime.today()
-symbols = DEFAULT_ETFS
-benchmark = "SPY"
+class RRGData:
+    def __init__(self, symbols, benchmark):
+        self.symbols = symbols
+        self.benchmark = benchmark
+        self.today = datetime.today()
+        self.lookback = 252
+        self.tail = 30
+        self.data = None
+        self.rs_ratios = {}
+        self.rs_momentum = {}
 
-# === LOAD MODULE ===
-def import_from_file(module_name, file_path):
-    spec = importlib.util.spec_from_file_location(module_name, file_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    def fetch_data(self):
+        all_tickers = self.symbols + [self.benchmark]
+        df = yf.download(all_tickers, period="1y", interval="1d", group_by="ticker", auto_adjust=True)
+        prices = {}
+        for ticker in all_tickers:
+            if (ticker,) in df.columns:
+                prices[ticker] = df[(ticker,)]['Close']
+            else:
+                prices[ticker] = df[ticker]['Close']
+        self.data = pd.DataFrame(prices).dropna()
 
-module = import_from_file("relative_rotation", "relative_rotation.py")
+    def calculate_indicators(self):
+        rel_strength = self.data[self.symbols].div(self.data[self.benchmark], axis=0)
+        self.rs_ratios = rel_strength
+        self.rs_momentum = rel_strength.pct_change(periods=5)
 
-# === Async Streamlit-safe wrapper ===
-@st.cache_data(show_spinner="Loading RRG data...", ttl=3600)
-def get_rrg_data():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    return loop.run_until_complete(module.create(
-        symbols=symbols,
-        benchmark=benchmark,
-        study="price",
-        date=pd.to_datetime(TODAY),
-        long_period=252,
-        short_period=21,
-        window=21,
-        trading_periods=252,
-        tail_periods=30,
-        tail_interval="week",
-        provider="yfinance",
-    ))
+    def show(self):
+        import plotly.express as px
 
-st.markdown("---")
-st.subheader("📊 Relative Rotation Graph (OpenBB RRG)")
+        last = self.rs_ratios.index[-1]
+        df = pd.DataFrame({
+            "symbol": self.symbols,
+            "RS": self.rs_ratios.loc[last].values,
+            "Momentum": self.rs_momentum.loc[last].values,
+        })
 
-try:
-    rrg_data = get_rrg_data()
-
-    fig = rrg_data.show(
-        date=TODAY,
-        show_tails=True,
-        tail_periods=30,
-        tail_interval="week",
-        external=True,
-    )
-    fig.update_layout(height=600, margin=dict(l=0, r=20, b=0, t=50, pad=0))
-    st.plotly_chart(fig, use_container_width=True)
-
-    with st.expander("Study Data Table", expanded=False):
-        symbols_data = (
-            basemodel_to_df(rrg_data.symbols_data).join(
-                basemodel_to_df(rrg_data.benchmark_data)[benchmark]
-            )
-        ).set_index("date")
-        symbols_data.index = pd.to_datetime(symbols_data.index).strftime("%Y-%m-%d")
-        st.dataframe(symbols_data)
-
-    with st.expander("Relative Strength Ratio Table", expanded=False):
-        ratios_data = basemodel_to_df(rrg_data.rs_ratios).set_index("date")
-        ratios_data.index = pd.to_datetime(ratios_data.index).strftime("%Y-%m-%d")
-        st.dataframe(ratios_data)
-
-    with st.expander("Relative Strength Momentum Table", expanded=False):
-        momentum_data = basemodel_to_df(rrg_data.rs_momentum).set_index("date")
-        momentum_data.index = pd.to_datetime(momentum_data.index).strftime("%Y-%m-%d")
-        st.dataframe(momentum_data)
-
-except Exception as e:
-    st.error(f"OpenBB RRG Error: {e}")
+        fig = px.scatter(df, x="RS", y="Momentum", text="symbol",
+                         title="Relative Rotation Graph", width=800, height=600)
+        fig.update_traces(textposition="top center")
+        fig.update_layout(xaxis_title="Relative Strength", yaxis_title="Momentum")
+        return fig
