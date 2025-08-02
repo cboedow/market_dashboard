@@ -11,9 +11,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import scipy.interpolate as si
 import warnings
-from RRGPy import RRG
-from RRG.universe import Universe
-
+from RRGIndicator import RRG
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 pd.set_option('future.no_silent_downcasting', True)
@@ -106,46 +104,43 @@ for i, symbol in enumerate(ALL_SYMBOLS):
 
     row[i % 3].plotly_chart(fig, use_container_width=True)
 
-# === RRG Section (RRGPy Integrated) ===
+# === RRG Section ===
 st.markdown("---")
-st.subheader("🔄 RRG — Sector Rotation via RRGPy")
+st.subheader("🔄 RRG — Sector Rotation (JDK RS + Momentum)")
 
 try:
-    view_mode = st.radio("RRG View", ["Daily", "Weekly"], horizontal=True)
-    with st.spinner(f"Generating {view_mode} RRG..."):
+    view_mode = st.radio("View", ["Daily", "Weekly"], horizontal=True)
+    with st.spinner(f"Loading {view_mode} RRG..."):
         days_back = 60 if view_mode == "Daily" else 280
         interval = '1d' if view_mode == "Daily" else '1wk'
 
         @st.cache_data(ttl=3600)
-        def get_rrg_data(etfs, interval, days_back):
-            df = yf.download(etfs,
+        def fetch_sector_data(symbols, interval, days_back):
+            df = yf.download(symbols,
                              start=(datetime.date.today() - datetime.timedelta(days=days_back)).isoformat(),
-                             end=TODAY.isoformat(),
+                             end=TODAY,
                              interval=interval,
                              auto_adjust=True)['Close']
-            return df.dropna()
+            return df.dropna(axis=1, how="any")  # Ensure no missing columns
 
-        rrg_prices = get_rrg_data(DEFAULT_ETFS + ['SPY'], interval, days_back)
+        price_df = fetch_sector_data(DEFAULT_ETFS, interval, days_back)
 
-        # Construct RRG universe and model
-        universe = Universe(rrg_prices, benchmark='SPY')
-        rrg = RRG(universe=universe)
+        # Instantiate RRG class from your local RRGIndicator.py
+        rrg = RRG(price_df=price_df, benchmark="SPY", window=10)
 
-        # Plot using RRGPy (plotly backend)
         fig = rrg.plot_plotly(
-            tickers=[etf for etf in DEFAULT_ETFS if etf != 'SPY'],
-            lookback=10,
-            show_tails=True,
-            quadrant_colors=True,
-            annotations=True,
-            annotate_latest=True,
-            scale_axes=True
+            tickers=DEFAULT_ETFS,
+            trail_length=12,
+            scaled=True,
+            title=f"RRG: Sector Rotation ({view_mode})",
+            show_legend=True
         )
 
         st.plotly_chart(fig, use_container_width=True)
 
 except Exception as e:
-    st.error(f"Failed to generate RRG: {e}")
+    st.error(f"RRG chart error: {e}")
+
 # === GOOGLE TRENDS ===
 st.markdown("---")
 st.subheader("📈 Google Trends Sentiment Tracker")
