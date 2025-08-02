@@ -5,3 +5,5 @@ numpy
 plotly
 pytrends
 scipy
+asyncio
+open_corebb
