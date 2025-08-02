@@ -11,7 +11,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import scipy.interpolate as si
 import warnings
-from RRG import RRG
+from relative_rotation import create, SPDRS
+import asyncio
+from openbb_core.app.utils import basemodel_to_df
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 pd.set_option('future.no_silent_downcasting', True)
@@ -105,55 +107,61 @@ for i, symbol in enumerate(ALL_SYMBOLS):
     row[i % 3].plotly_chart(fig, use_container_width=True)
 
 # === RRG Section ===
+
 st.markdown("---")
-st.subheader("🔄 RRG — Sector Rotation (JDK RS + Momentum)")
-st.subheader("📊 Relative Rotation Graph")
+st.subheader("📊 Relative Rotation Graph (OpenBB RRG)")
 
-tickers = ['SPY', 'QQQ', 'XLF', 'XLK', 'XLU', 'XLE']
-try:
-    rrg = RRG(tickers=tickers, benchmark='SPY', period='6mo', interval='1wk')
-    rrg.fetch_data()
-    rrg.calculate_indicators()
-    fig = rrg.plot_plotly()
-    st.plotly_chart(fig, use_container_width=True)
-except Exception as e:
-    st.error(f"RRG Error: {e}")
-
-
-st.plotly_chart(fig, use_container_width=True)
+symbols = SPDRS()
+benchmark = "SPY"
 
 try:
-    view_mode = st.radio("View", ["Daily", "Weekly"], horizontal=True)
-    with st.spinner(f"Loading {view_mode} RRG..."):
-        days_back = 60 if view_mode == "Daily" else 280
-        interval = '1d' if view_mode == "Daily" else '1wk'
-
-        @st.cache_data(ttl=3600)
-        def fetch_sector_data(symbols, interval, days_back):
-            df = yf.download(symbols,
-                             start=(datetime.date.today() - datetime.timedelta(days=days_back)).isoformat(),
-                             end=TODAY,
-                             interval=interval,
-                             auto_adjust=True)['Close']
-            return df.dropna(axis=1, how="any")  # Ensure no missing columns
-
-        price_df = fetch_sector_data(DEFAULT_ETFS, interval, days_back)
-
-        # Instantiate RRG class from your local RRGIndicator.py
-        rrg = RRG(price_df=price_df, benchmark="SPY", window=10)
-
-        fig = rrg.plot_plotly(
-            tickers=DEFAULT_ETFS,
-            trail_length=12,
-            scaled=True,
-            title=f"RRG: Sector Rotation ({view_mode})",
-            show_legend=True
+    rrg_data = asyncio.run(
+        create(
+            symbols=symbols,
+            benchmark=benchmark,
+            study="price",
+            date=pd.to_datetime(TODAY),
+            long_period=252,
+            short_period=21,
+            window=21,
+            trading_periods=252,
+            tail_periods=30,
+            tail_interval="week",
+            provider="yfinance",
         )
+    )
 
-        st.plotly_chart(fig, use_container_width=True)
+    fig = rrg_data.show(
+        date=TODAY,
+        show_tails=True,
+        tail_periods=30,
+        tail_interval="week",
+        external=True,
+    )
+    fig.update_layout(height=600, margin=dict(l=0, r=20, b=0, t=50, pad=0))
+    st.plotly_chart(fig, use_container_width=True)
+
+    with st.expander("Study Data Table", expanded=False):
+        symbols_data = (
+            basemodel_to_df(rrg_data.symbols_data).join(
+                basemodel_to_df(rrg_data.benchmark_data)[benchmark]
+            )
+        ).set_index("date")
+        symbols_data.index = pd.to_datetime(symbols_data.index).strftime("%Y-%m-%d")
+        st.dataframe(symbols_data)
+
+    with st.expander("Relative Strength Ratio Table", expanded=False):
+        ratios_data = basemodel_to_df(rrg_data.rs_ratios).set_index("date")
+        ratios_data.index = pd.to_datetime(ratios_data.index).strftime("%Y-%m-%d")
+        st.dataframe(ratios_data)
+
+    with st.expander("Relative Strength Momentum Table", expanded=False):
+        momentum_data = basemodel_to_df(rrg_data.rs_momentum).set_index("date")
+        momentum_data.index = pd.to_datetime(momentum_data.index).strftime("%Y-%m-%d")
+        st.dataframe(momentum_data)
 
 except Exception as e:
-    st.error(f"RRG chart error: {e}")
+    st.error(f"OpenBB RRG Error: {e}")
 
 # === GOOGLE TRENDS ===
 st.markdown("---")
