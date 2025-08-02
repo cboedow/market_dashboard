@@ -15,8 +15,8 @@ st.set_page_config(layout="wide")
 
 # === CONFIG ===
 DEFAULT_ETFS = [
-    "SPY", "QQQ", "DIA", "IWM",  # Major indices
-    "XLF", "XLK", "XLE", "XLY", "XLI", "XLP", "XLV", "XLU", "XLB", "XLRE", "XLC"  # Sector SPDRs
+    "SPY", "QQQ", "DIA", "IWM",
+    "XLF", "XLK", "XLE", "XLY", "XLI", "XLP", "XLV", "XLU", "XLB", "XLRE", "XLC"
 ]
 
 # === USER STOCK INPUT ===
@@ -28,7 +28,7 @@ START = (datetime.date.today() - datetime.timedelta(days=90)).isoformat()
 TODAY = datetime.date.today().isoformat()
 
 # === DOWNLOAD DATA ===
-data = yf.download(ALL_SYMBOLS, start=START, end=TODAY, group_by='ticker', auto_adjust=True)
+data = yf.download(ALL_SYMBOLS, start=START, end=TODAY, group_by='ticker', auto_adjust=False)
 
 # === VIX / VIX3M ===
 vix_data = yf.download(['^VIX', '^VIX3M'], start=START, end=TODAY, auto_adjust=True)
@@ -79,8 +79,8 @@ try:
 except:
     latest_zweig = np.nan
 
-# === MCCLELLAN OSCILLATOR & RSI ===
-def compute_mcclellan(symbol):
+# === INDICATORS ===
+def compute_indicators(symbol):
     df = data[symbol].copy()
     df['Advance'] = df['Close'].pct_change() > 0
     df['Decline'] = df['Close'].pct_change() < 0
@@ -89,7 +89,7 @@ def compute_mcclellan(symbol):
     df['EMA39'] = df['NetAdv'].ewm(span=39).mean()
     df['McClellan'] = df['EMA19'] - df['EMA39']
     df['RSI'] = compute_rsi(df['Close'])
-    return df[['McClellan', 'RSI']]
+    return df
 
 def compute_rsi(series, period=14):
     delta = series.diff()
@@ -111,19 +111,30 @@ with col1:
     st.metric("Gamma Exposure (GEX)", value=f"{GEX_level/1e6:.1f}M", delta="⚠️ Risky" if GEX_level < 0 else "✅ Positive")
     st.metric("Zweig Breadth Thrust", value=round(latest_zweig, 3), delta=zweig_signal)
 
-# === MCCLELLAN CHARTS ===
-st.subheader("🧭 McClellan Oscillator & RSI")
+# === CHARTS ===
+st.subheader("📊 McClellan Oscillator + Price + RSI")
+
 for symbol in ALL_SYMBOLS:
-    osc_rsi = compute_mcclellan(symbol)
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=osc_rsi.index, y=osc_rsi['McClellan'], mode='lines', name=f"{symbol} McClellan"))
-    fig.add_trace(go.Scatter(x=osc_rsi.index, y=osc_rsi['RSI'], mode='lines', name=f"{symbol} RSI", yaxis="y2"))
-    fig.update_layout(
-        title=f"McClellan Oscillator + RSI — {symbol}",
-        yaxis=dict(title="McClellan"),
-        yaxis2=dict(title="RSI", overlaying="y", side="right", range=[0, 100]),
-        height=300
-    )
+    df = compute_indicators(symbol)
+    df.dropna(inplace=True)
+
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True,
+                        row_heights=[0.5, 0.25, 0.25],
+                        vertical_spacing=0.03,
+                        subplot_titles=(f"{symbol} Price", "McClellan Oscillator", "RSI"))
+
+    fig.add_trace(go.Candlestick(x=df.index,
+                                 open=df['Open'], high=df['High'],
+                                 low=df['Low'], close=df['Close'],
+                                 name=f"{symbol} Price"), row=1, col=1)
+
+    colors = ['green' if v > 0 else 'red' for v in df['McClellan']]
+    fig.add_trace(go.Bar(x=df.index, y=df['McClellan'], marker_color=colors, name="McClellan"), row=2, col=1)
+
+    fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", mode="lines"), row=3, col=1)
+    fig.update_yaxes(range=[0, 100], row=3, col=1)
+    fig.update_layout(height=600, showlegend=False, title=f"{symbol} Technical Stack")
+
     st.plotly_chart(fig, use_container_width=True)
 
 # === GOOGLE TRENDS ===
@@ -139,4 +150,4 @@ if not trend_data.empty:
 else:
     st.warning("Google Trends data could not be loaded. Try again later.")
 
-st.caption("Dashboard prototype v1.5 — McClellan + RSI, fixed Put/Call Ratio")
+st.caption("Dashboard prototype v1.6 — Candlestick + McClellan Bar + RSI Stack")
