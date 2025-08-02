@@ -146,7 +146,7 @@ sector_data = yf.download(DEFAULT_ETFS, start=(datetime.date.today() - datetime.
 
     rrg_traj_fig.update_layout(title="RRG Flow — Momentum vs Relative Strength (with Quadrants)", xaxis_title="JDK RS", yaxis_title="JDK Momentum")
     st.plotly_chart(rrg_traj_fig, use_container_width=True)
-except:
+except Exception as e:
     st.warning("Unable to load RRG sector chart.")
 
 # === GOOGLE TRENDS ===
