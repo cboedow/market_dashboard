@@ -133,57 +133,65 @@ try:
 
         fig = go.Figure()
 
-        # === Quadrant backgrounds ===
-        quadrant_colors = {
-            "Leading":    {"x0": 0,  "x1": 1,  "y0": 0,  "y1": 1,  "color": "rgba(173,216,230,0.2)"},  # Light Blue
-            "Weakening":  {"x0": 0,  "x1": 1,  "y0": -1, "y1": 0,  "color": "rgba(255,255,153,0.2)"},  # Light Yellow
-            "Lagging":    {"x0": -1, "x1": 0,  "y0": -1, "y1": 0,  "color": "rgba(255,160,122,0.2)"},  # Light Salmon
-            "Improving":  {"x0": -1, "x1": 0,  "y0": 0,  "y1": 1,  "color": "rgba(144,238,144,0.2)"}   # Light Green
+        # Quadrant backgrounds
+        quadrants = {
+            "Leading":    {"x0": 0, "x1": 1.5, "y0": 0, "y1": 1.5, "color": "rgba(173,216,230,0.2)"},
+            "Weakening":  {"x0": 0, "x1": 1.5, "y0": -1.5, "y1": 0, "color": "rgba(255,255,153,0.2)"},
+            "Lagging":    {"x0": -1.5, "x1": 0, "y0": -1.5, "y1": 0, "color": "rgba(255,160,122,0.2)"},
+            "Improving":  {"x0": -1.5, "x1": 0, "y0": 0, "y1": 1.5, "color": "rgba(144,238,144,0.2)"}
         }
 
-        for quadrant in quadrant_colors.values():
+        for q, props in quadrants.items():
             fig.add_shape(type="rect", xref="x", yref="y",
-                          x0=quadrant["x0"], x1=quadrant["x1"],
-                          y0=quadrant["y0"], y1=quadrant["y1"],
-                          fillcolor=quadrant["color"], line_width=0)
+                          x0=props["x0"], x1=props["x1"],
+                          y0=props["y0"], y1=props["y1"],
+                          fillcolor=props["color"], line_width=0)
 
-        # === Axes ===
+        # Axis lines
         fig.add_shape(type="line", x0=-1.5, x1=1.5, y0=0, y1=0,
                       line=dict(color="gray", dash="dash"))
         fig.add_shape(type="line", x0=0, x1=0, y0=-1.5, y1=1.5,
                       line=dict(color="gray", dash="dash"))
 
-        # === ETF Arrows + Markers ===
+        # Quadrant labels
+        fig.add_annotation(x=1.1, y=1.3, text="Leading", showarrow=False, font=dict(size=12, color="blue"))
+        fig.add_annotation(x=1.1, y=-1.3, text="Weakening", showarrow=False, font=dict(size=12, color="goldenrod"))
+        fig.add_annotation(x=-1.4, y=-1.3, text="Lagging", showarrow=False, font=dict(size=12, color="red"))
+        fig.add_annotation(x=-1.4, y=1.3, text="Improving", showarrow=False, font=dict(size=12, color="green"))
+
+        # Shorter trail for clarity
+        trail_length = 5
+
         for symbol in DEFAULT_ETFS:
-            rs_series = jdk_rs_scaled[symbol].iloc[-10:]
-            mom_series = jdk_mom_scaled[symbol].iloc[-10:]
+            rs_series = jdk_rs_scaled[symbol].iloc[-trail_length:]
+            mom_series = jdk_mom_scaled[symbol].iloc[-trail_length:]
 
             if rs_series.isnull().any() or mom_series.isnull().any():
                 continue
 
-            # Line path (arrow body)
+            color = f"rgba({np.random.randint(0,255)}, {np.random.randint(0,255)}, {np.random.randint(0,255)}, 0.7)"
+
+            # Main trace line
             fig.add_trace(go.Scatter(
                 x=rs_series,
                 y=mom_series,
                 mode="lines",
-                line=dict(width=2),
+                line=dict(width=2, color=color),
                 name=symbol,
-                showlegend=False
+                showlegend=True
             ))
 
-            # Arrow head (using final two points to draw arrow)
+            # Arrow head marker (latest point)
             fig.add_trace(go.Scatter(
-                x=rs_series.iloc[-2:],
-                y=mom_series.iloc[-2:],
-                mode="lines+markers+text",
-                line=dict(width=0.5, color='black', dash='dot'),
-                marker=dict(size=[6, 12], color='black'),
-                text=[None, symbol],
+                x=[rs_series.iloc[-1]],
+                y=[mom_series.iloc[-1]],
+                mode="markers+text",
+                marker=dict(size=12, color=color, line=dict(color="black", width=1)),
+                text=[symbol],
                 textposition="top center",
                 showlegend=False
             ))
 
-        # === Final Layout ===
         fig.update_layout(
             title="RRG: Sector Rotation via JDK RS & Momentum",
             xaxis_title="JDK RS (Relative Strength vs SPY) - Scaled",
@@ -199,11 +207,12 @@ try:
 except Exception as e:
     st.error(f"RRG chart error: {e}")
 
+
 # === GOOGLE TRENDS ===
 st.markdown("---")
 st.subheader("📈 Google Trends Sentiment Tracker")
 trends = TrendReq(hl='en-US', tz=360)
-keywords = ["$GEV", "stocks", "$TSLA", "$NVDA", "AI stocks", "bitcoin"]
+keywords = ["GEV", "stocks", "TSLA", "NVDA", "AI stocks", "bitcoin"]
 trends.build_payload(kw_list=keywords, timeframe='now 7-d')
 trend_data = trends.interest_over_time().infer_objects(copy=False)
 if not trend_data.empty:
