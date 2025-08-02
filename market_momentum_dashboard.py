@@ -100,7 +100,7 @@ with col1:
     st.metric("VIX/VIX3M Ratio", value=round(vix_ratio, 2), delta="⚠️ High" if vix_ratio > 1.2 else "✅ Stable")
     st.metric("Equity Put/Call Ratio", value=f"{put_call_data['Equity P/C']:.2f}" if pd.notna(put_call_data['Equity P/C']) else "N/A")
     st.metric("Total Put/Call Ratio", value=f"{put_call_data['Total P/C']:.2f}" if pd.notna(put_call_data['Total P/C']) else "N/A")
-    st.metric("Gamma Exposure (proxy)", value=f"{GEX_level:.1f}M" if pd.notna(GEX_level) else "N/A", delta="⚠️ Risky" if pd.notna(GEX_level) and GEX_level.item() < 0 else "✅ Positive")
+    st.metric("Gamma Exposure (proxy)", value=f"{GEX_level:.1f}M" if pd.notna(GEX_level) else "N/A", delta="⚠️ Risky" if pd.notna(GEX_level) and float(GEX_level) < 0 else "✅ Positive")
     st.metric("Zweig Breadth Thrust", value=f"{latest_zweig:.3f}" if pd.notna(latest_zweig) else "N/A", delta=zweig_signal)
 
 # === CHARTS ===
