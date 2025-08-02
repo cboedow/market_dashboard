@@ -34,7 +34,7 @@ class RRG:
         else:
             raise ValueError("Benchmark data has no 'Close' column.")
 
-     def calculate_indicators(self):
+    def calculate_indicators(self):
         for ticker in self.tickers:
             rs = 100 * (self.tickers_data[ticker] / self.benchmark_data)
             rsr = (100 + (rs - rs.rolling(window=self.window).mean()) / rs.rolling(window=self.window).std(ddof=0)).dropna()
