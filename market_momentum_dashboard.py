@@ -11,8 +11,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import scipy.interpolate as si
 import warnings
-import matplotlib
-from RRGIndicator import RRG
+from RRG import RRG
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 pd.set_option('future.no_silent_downcasting', True)
@@ -108,6 +107,16 @@ for i, symbol in enumerate(ALL_SYMBOLS):
 # === RRG Section ===
 st.markdown("---")
 st.subheader("🔄 RRG — Sector Rotation (JDK RS + Momentum)")
+st.subheader("📊 Relative Rotation Graph")
+
+tickers = ['SPY', 'QQQ', 'XLF', 'XLK', 'XLU', 'XLE']
+rrg = RRG(tickers=tickers, benchmark='SPY', period='6mo', interval='1wk')
+rrg.fetch_data()
+rrg.calculate_indicators()
+df = rrg.prepare_dataframe()
+fig = rrg.plot_plotly()
+
+st.plotly_chart(fig, use_container_width=True)
 
 try:
     view_mode = st.radio("View", ["Daily", "Weekly"], horizontal=True)
