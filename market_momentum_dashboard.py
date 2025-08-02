@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import scipy.interpolate as si
 import warnings
+import matplotlib
 from RRGIndicator import RRG
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
