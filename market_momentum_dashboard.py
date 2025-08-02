@@ -5,10 +5,10 @@ import pandas as pd
 import numpy as np
 import datetime
 import streamlit as st
-from plotly.subplots import make_subplots
 from pytrends.request import TrendReq
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import requests
 from bs4 import BeautifulSoup
 
@@ -25,7 +25,7 @@ user_input = st.sidebar.text_area("📥 Add Custom Tickers (comma-separated)", v
 custom_tickers = [s.strip().upper() for s in user_input.split(",") if s.strip()]
 ALL_SYMBOLS = list(set(DEFAULT_ETFS + custom_tickers))
 
-START = (datetime.date.today() - datetime.timedelta(days=90)).isoformat()
+START = (datetime.date.today() - datetime.timedelta(days=180)).isoformat()
 TODAY = datetime.date.today().isoformat()
 
 # === DOWNLOAD DATA ===
@@ -115,12 +115,13 @@ with col1:
 # === CHARTS ===
 st.subheader("📊 McClellan Oscillator + Price + RSI")
 
-for symbol in ALL_SYMBOLS:
+row = st.columns(3)
+for i, symbol in enumerate(ALL_SYMBOLS):
     df = compute_indicators(symbol)
     df.dropna(inplace=True)
 
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True,
-                        row_heights=[0.5, 0.25, 0.25],
+                        row_heights=[0.45, 0.30, 0.25],
                         vertical_spacing=0.03,
                         subplot_titles=(f"{symbol} Price", "McClellan Oscillator", "RSI"))
 
@@ -134,9 +135,9 @@ for symbol in ALL_SYMBOLS:
 
     fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", mode="lines"), row=3, col=1)
     fig.update_yaxes(range=[0, 100], row=3, col=1)
-    fig.update_layout(height=600, showlegend=False, title=f"{symbol} Technical Stack")
+    fig.update_layout(height=800, width=500, showlegend=False, title=f"{symbol} Technical Stack")
 
-    st.plotly_chart(fig, use_container_width=True)
+    row[i % 3].plotly_chart(fig, use_container_width=True)
 
 # === GOOGLE TRENDS ===
 st.markdown("---")
@@ -151,4 +152,4 @@ if not trend_data.empty:
 else:
     st.warning("Google Trends data could not be loaded. Try again later.")
 
-st.caption("Dashboard prototype v1.6 — Candlestick + McClellan Bar + RSI Stack")
+st.caption("Dashboard prototype v1.7 — 6mo charts stacked vertically and better sized")
