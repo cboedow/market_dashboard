@@ -20,8 +20,13 @@ class RRG:
         self.dataframe = None
 
     def fetch_data(self):
-        self.tickers_data = yf.download(self.tickers, period=self.period, interval=self.interval)['Adj Close']
-        self.benchmark_data = yf.download(self.benchmark, period=self.period, interval=self.interval)['Adj Close']
+        raw = yf.download(self.tickers, period=self.period, interval=self.interval, auto_adjust=True, group_by='ticker')
+        if isinstance(raw.columns, pd.MultiIndex):
+            self.tickers_data = raw['Close']
+        else:
+            self.tickers_data = raw[['Close']].copy()
+        benchmark_raw = yf.download(self.benchmark, period=self.period, interval=self.interval, auto_adjust=True)
+        self.benchmark_data = benchmark_raw['Close']
 
     def calculate_indicators(self):
         for ticker in self.tickers:
